@@ -1,0 +1,21 @@
+What is AI? (Workloads & Responsible AI)
+The one-line definition: AI is software that performs tasks normally requiring human intelligence — predicting, recognizing, understanding, creating.
+As a C# developer, I think of it this way: in normal code, you write the rules (if temp > 30 → "hot"). In AI/ML, you give the machine examples and it derives the rules itself. The "model" is essentially a function whose body was written by data instead of by you.
+
+The 5 AI workloads:
+Machine learning — predicting values from data (sales forecasts, fraud detection). The foundation of everything else.
+Computer vision — interpreting images/video (object detection, OCR, face recognition).
+Natural language processing (NLP) — understanding text/speech (sentiment analysis, translation, speech-to-text).
+Document intelligence / knowledge mining — extracting structured data from documents (invoices → fields).
+Generative AI — creating new content (text, images, code). ChatGPT, Copilot. Differs from the others: they analyze, this one produces.
+
+The 6 Responsible AI principles:
+Fairness — no bias against groups (loan model shouldn't penalize gender)
+Reliability & safety — must work consistently (a self-driving car can't be "usually right")
+Privacy & security — protect training and user data
+Inclusiveness — works for everyone, including disabilities
+Transparency — users should know how it works and its limits
+Accountability — humans stay responsible for AI decisions, not "the algorithm did it"
+
+The takeaway from today's learning -
+My key takeaway is understanding that AI is software designed to perform tasks that normally require human intelligence, such as predicting, recognizing, understanding, and creating. Unlike traditional programming, where developers explicitly define rules, AI learns patterns from data and derives its own logic through models. I also learned about the five major AI workloads—machine learning, computer vision, natural language processing, document intelligence, and generative AI—each serving different purposes from analyzing data to generating new content. Most importantly, I understood that building AI is not only about capability but also responsibility, which is guided by principles such as fairness, reliability, privacy, inclusiveness, transparency, and accountability to ensure AI systems are ethical, safe, and trustworthy.
