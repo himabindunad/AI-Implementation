@@ -1,0 +1,60 @@
+Machine Learning on Azure
+
+Today: how training actually works (answering my open question from Day 2), and Azure Machine Learning — the platform side of ML.
+
+## First: how does a model "learn"?
+
+Training is an optimization loop:
+
+1. Model starts with random internal numbers (*weights*) — predictions are garbage
+2. A *loss function* measures how wrong the predictions are
+3. *Gradient descent* computes which direction each weight should move to reduce the loss
+4. Nudge weights downhill, repeat thousands of times until loss stops improving
+
+
+while (loss is improving):
+    predict → measure error → adjust weights toward less error
+
+"Learning" = iterative error minimization. LLMs are trained with this same loop at massive scale.
+
+## Why Azure ML exists
+
+Training on a laptop works for toy problems. Real ML needs scalable compute, tracked experiments, deployment behind an API, and post-deployment monitoring. *Azure Machine Learning* manages that full lifecycle — "DevOps for models."
+
+## Key concepts
+
+- *Workspace* — top-level container: data, compute, experiments, models
+- *Compute instance* (dev VM for notebooks) vs *compute cluster* (scales out for training, scales to zero when idle)
+- *Data assets* — versioned datasets for reproducible experiments
+- *Jobs/experiments* — every training run logged: data + parameters + metrics (CI builds, but for models)
+
+## Three ways to build a model
+
+*Automated ML* | No-code/minimal-code | Give it data + target column; it tries many algorithms and ranks the best |
+*Designer* | Low-code | Drag-and-drop pipeline canvas |
+*Notebooks/SDK* | Code-first | Full Python control |
+
+## Deployment: endpoints
+
+A trained model is just a file until deployed:
+- *Real-time endpoint* — REST API, one prediction at a time, low latency (fraud check at checkout)
+- *Batch endpoint* — score large datasets on a schedule (overnight churn scoring)
+
+## The ML lifecycle (it's a loop)
+ingest → train → evaluate → register model → deploy → *monitor* → retrain when it drifts
+
+## What I still want to understand
+
+- What do the regression/classification evaluation metrics (MAE, RMSE, precision, recall) look like on real Azure ML output?
+- How does a confusion matrix translate into "is this model good enough to ship?"
+
+## Resources
+- [Fundamentals of machine learning (MS Learn)](https://learn.microsoft.com/en-us/training/modules/fundamentals-machine-learning/)
+- [Fundamentals of Azure Machine Learning](https://learn.microsoft.com/en-us/training/modules/fundamentals-azure-machine-learning/)
+
+## Day 3 takeaways:
+"Learning" = error minimization. Training is a loop: predict → measure error (loss) → adjust weights downhill (gradient descent) → repeat. Nothing mystical.
+Azure ML = DevOps for models. Workspace holds everything; compute clusters scale to zero; every training run is logged like a CI build.
+Three build paths: AutoML (no data scientists → exam answer), Designer (drag-and-drop), notebooks (code-first).
+Deployment tell: per-transaction/instant → real-time endpoint; millions of rows on a schedule → batch endpoint.
+The lifecycle is a loop, not a line. Models decay — data drift is the ML equivalent of a slow memory leak, and monitoring deployed models is a APM skillset applied to AI.
