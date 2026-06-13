@@ -1,0 +1,50 @@
+Computer Vision on Azure
+
+how machines see, the computer vision task taxonomy, and Azure's vision services.
+
+How a computer "sees" :
+As we Humans see by interpreting light through eyes and the brain. Machines “see” by converting images/videos into numerical data (pixels) and using algorithms or AI models to interpret patterns.
+
+Convolutional neural networks (CNNs) do this by sliding small learned filters across the image, building understanding hierarchically:
+Early layers → edges and gradients
+Middle layers → textures and shapes (ears, wheels)
+Late layers → whole objects ("cat", "car")
+
+Computer Vision Task Taxonomy:
+Computer vision tasks are grouped by what problem the system solves.
+The filters are learned via gradient descent but not programmed. Modern Azure vision uses large multimodal foundation models — one model can caption, tag, and answer questions about images.
+
+Azure services:
+
+Azure AI Vision — image analysis (captions, tags, objects) + OCR via the Read API (printed & handwritten)
+Azure AI Face — detection, attributes, verification, identification. Recognition is Limited Access (must apply with use case) — responsible AI principles becoming real product policy
+Azure AI Custom Vision — train your own classifier/detector on your own labeled images (~50+/class), no ML expertise needed. Tell: "built-in model doesn't know our parts" → Custom Vision
+Azure AI Document Intelligence — form/document → structured fields. Image is a form and you want data → this, not plain OCR
+
+As a C# developer
+All of it sits behind an SDK:
+
+csharpvar client = new ImageAnalysisClient(endpoint, new AzureKeyCredential(key));
+var result = client.Analyze(imageUri, VisualFeatures.Caption | VisualFeatures.Read);
+Console.WriteLine(result.Caption.Text); // "a dog playing in the snow"
+
+A decade of CNN research, consumed like any REST API.
+
+What I still want to understand
+How Custom Vision trains a usable model from only ~50 images (transfer learning?)
+Where the line is between Document Intelligence and plain OCR in practice
+
+Resources:
+Fundamentals of computer vision (MS Learn)
+Fundamentals of Facial Recognition
+Fundamentals of optical character recognition
+
+Key Takeaways:
+Machines “see” images as pixel data and use AI models (especially CNNs) to learn patterns like edges, shapes, and objects through hierarchical feature extraction.
+Computer vision tasks are grouped by purpose: classification (what), detection (what + where), segmentation (pixel-level), OCR (text extraction), face analysis, captioning, and anomaly detection.
+Modern models are trained using deep learning and transfer learning, not manually programmed rules.
+Azure AI Vision provides general image analysis, tagging, captioning, object detection, and OCR capabilities.
+Azure AI Face handles face detection and identity verification, with some features requiring controlled access due to responsible AI policies.
+Azure AI Custom Vision enables training custom image models using small labeled datasets by leveraging transfer learning from pre-trained CNN models.
+Azure AI Document Intelligence goes beyond OCR by extracting structured, meaningful data (fields, tables, key-value pairs) from documents like invoices and forms.
+Overall, Azure abstracts complex deep learning models into simple API-based services, allowing developers to use computer vision without building models from scratch.
