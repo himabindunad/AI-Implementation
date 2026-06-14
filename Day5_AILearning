@@ -1,0 +1,38 @@
+Natural Language Processing on Azure:
+
+How machines understand text
+Computers work with numbers, not words. So text has to be converted first. The classic approach: tokenization — split text into tokens (words or subwords), then assign each a number. Example: "I love C#" → [42, 891, 334].
+
+But a plain number misses meaning. The breakthrough: word embeddings — map each token to a point in high-dimensional space where meaning determines proximity. "King" and "Queen" are close. "King − Man + Woman ≈ Queen." That's the geometry of language models.
+Modern LLMs use transformers (the "T" in GPT, BERT). The key innovation: attention — when processing a word, the model looks at every other word in the sentence and weighs how relevant each is. In "The bank by the river was steep," attention figures out "bank" = riverbank, not financial institution, from context. This is what makes transformer-based NLP so much better than older approaches.
+The NLP task taxonomy
+given a scenario, name the task:
+TaskWhat it doesScenario tellSentiment analysisPositive / negative / neutral"is this review good or bad?"Key phrase extractionPull out main topics"what is this article about?"Named entity recognition (NER)Find names, dates, orgs, locations"extract all company names from contracts"Language detectionWhat language is this?multilingual supportTranslationTranslate between languages"support customers in 50 languages"Text summarizationCondensed version"summarize this document"Speech to textAudio → transcriptvoice input, meeting notesText to speechText → audioaccessibility, voice botsQuestion answeringAnswer from a knowledge baseFAQ bot, document Q&AConversational AIMulti-turn dialoguecustomer support chatbot
+Azure services
+Azure AI Language — the main NLP service. Covers sentiment, key phrases, NER, entity linking, language detection, summarization, custom text classification, and question answering (formerly QnA Maker). One endpoint, many capabilities.
+Azure AI Translator — dedicated translation service. Supports 100+ languages, real-time and batch.
+Azure AI Speech — speech-to-text, text-to-speech, speech translation, speaker recognition. The voice layer on top of language.
+Azure AI Bot Service + Copilot Studio — orchestrate all the above into a conversational bot, deployable to Teams, websites, or any channel.
+The C# connection
+csharpvar client = new TextAnalyticsClient(endpoint, new AzureKeyCredential(key));
+
+// Sentiment
+var sentiment = client.AnalyzeSentiment("The deployment went smooth!");
+Console.WriteLine(sentiment.Value.Sentiment); // Positive
+
+// Named entities — great for parsing log messages
+var entities = client.RecognizeEntities("Error in OrderService at 14:32 UTC");
+foreach (var entity in entities.Value)
+    Console.WriteLine($"{entity.Text} → {entity.Category}");
+// "OrderService" → Skill · "14:32 UTC" → DateTime
+The NER example is directly relevant to your open-source project idea: run NER on log lines to extract service names, timestamps, and error codes automatically before feeding to the LLM.
+APM connection
+NLP on logs is real-world and strongest angle: sentiment on incident post-mortems, NER to extract affected services/hosts/times.
+
+Takeaways — NLP on Azure:
+-Text → numbers → meaning. Tokenization converts words to numbers; embeddings place them in space where similar words are close; transformers use attention to understand words in context, not in isolation.
+-Attention is the key idea. "Bank" means different things in different sentences — attention figures it out from surrounding words. This is what makes modern NLP beat older approaches.
+-Know the task by its output: sentiment = a mood label · NER = extracted names/dates/places · summarization = shorter text · QnA = answer from a doc · conversational AI = multi-turn dialogue.
+-Azure services mapped to tasks: AI Language (text tasks) · AI Translator (language conversion) · AI Speech (audio to text) · Bot Service (full chatbot).
+-APM angle is strong: NER on log lines pulls out service names, timestamps, and error codes automatically. Summarization compresses a 500-line stack trace to 3 sentences. This is your capstone.
+-One-liner: NLP turns unstructured text into structured meaning 
