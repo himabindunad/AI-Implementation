@@ -1,0 +1,65 @@
+Generative AI Fundamentals
+
+This fundamentals give an idea about how LLMs actually work, tokens, temperature, prompt engineering, and Azure's generative AI services.
+
+What makes generative AI different
+
+In previous days I learned about AI that analyzes (classifies, detects, extracts).
+Today the concept is mainly about AI that creates — text, code, images, audio.
+
+The engine: Large Language Models (LLMs).
+
+How an LLM works
+Training objective: predict the next token. That's it.
+Do this billions of times across massive text data with a large enough model, and the model has to understand language, facts, and reasoning to predict well. Capability is a side effect of scale.
+
+Tokens:
+Not words, not characters — subword chunks. "unbelievable" → ["un", "believ", "able"] (3 tokens).
+Rule of thumb: 1 token ≈ ¾ of a word
+
+Why it matters as a developer:
+APIs charge per token (input + output)
+Models have a context window (max tokens they can "see" at once — like working memory)
+Long log files won't fit in one call → need chunking strategy for the capstone
+
+Temperature:
+Controls randomness: 0.0 → focused/deterministic · 1.0+ → creative/varied
+For log analysis: low temperature — you want consistent, accurate answers, not creative ones.
+
+How generation works (the loop)
+
+while (not done):
+    convert tokens → embeddings (vectors)
+    attention layers weigh relationships between all tokens
+    output layer produces probability over vocabulary
+    pick highest-probability token → append → repeat
+
+Each token depends on all previous ones. Generation is autoregressive — one token at a time.
+
+As a C# dev: a while loop calling a function that returns the next character, where the function has read every book ever written.
+
+Prompt engineering — is the primary interface
+
+We don't retrain the model; the prompt is how we control it.
+Retrieve relevant docs at runtime, inject as context. Capstone plan: retrieve 3 similar past incidents from a vector store → inject → ask "given these, what is this error?"
+
+Azure services for generative AI:
+ServiceWhat it isAzure OpenAIGPT-4, GPT-4o, DALL-E behind Azure security/compliance Azure AI Foundry Unified platform for deploying + managing foundation modelsGitHub ModelsFree-tier access to Phi, Llama, Mistral — no Azure subscription needed Ollama (open source)Run models locally, completely free, no API key — capstone tool
+Phi-3 Mini runs on most laptops with 8GB RAM via Ollama.
+Responsible AI for generative AI — new risks
+Hallucination — model confidently states false facts. Mitigation: RAG, low temperature, ask model to cite sources
+Prompt injection — malicious input in user data overrides system prompt. Relevant: a crafted log line could try to hijack log tool's instructions
+Content filtering — Azure OpenAI has built-in filters; exam tests awareness of this
+
+Resources
+Fundamentals of Generative AI (MS Learn)
+GitHub Models — free model playground
+Ollama — run models locally
+
+Key Takeaways:
+LLMs are trained to predict the next token. Do it at massive scale and understanding, reasoning, and code generation emerge as side effects.
+Tokens are the billing and memory unit. ~¾ word per token. Context window = working memory. Long log files won't fit in one call → chunking is a real engineering problem for capstone.
+Prompt engineering is the main control lever. Four techniques: system prompt (set the role), few-shot (show examples), chain of thought (reason step by step), RAG (inject retrieved context). Key is to prompt well.
+Three new risks with generative AI: hallucination (confidently wrong), prompt injection (log line hijacks your system prompt), content filtering (Azure has it built in).
+Ollama = free local LLMs. No API key, no cost, runs on laptop.
+One-liner: LLMs predict tokens, but at scale that becomes reasoning — and we control the output through prompts, not code.
