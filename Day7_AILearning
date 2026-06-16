@@ -1,0 +1,40 @@
+1st week's brain dump: Revision
+
+Name the 5 AI workloads?
+-ML —> learn patterns from data to make predictions
+-Computer Vision —> make sense of images and video
+-NLP —> understand and generate human language (text + speech)
+-Document Intelligence —> pull structured fields out of forms and documents
+-Generative AI —> create new content (text, images, code)
+
+Name the 6 responsible AI principles?
+-Fairness, 
+-reliability and safety, 
+-privacy and security, 
+-inclusiveness, 
+-transparency, and 
+-accountability. 
+Memory hook — pair them: people-facing (Fairness, Inclusiveness), system-quality (Reliability & Safety, Privacy & Security), governance (Transparency, Accountability).
+
+Regression vs. classification vs. clustering — one-line each?
+Regression — predict a number (house price, temperature). Supervised.
+Classification — predict a category (spam / not spam, cat / dog). Supervised.
+Clustering — group similar things with no labels given (customer segments). Unsupervised.
+
+Real-time vs. batch endpoint — when do you use each?
+Real-time (online) — you need the answer now, one request at a time, low latency. Fraud check at checkout, a chatbot reply. Compute stays running.
+Batch — you have a big pile of data and can wait. Runs on a schedule or trigger, processes many records at once, cheaper. Scoring your whole customer list overnight.
+Rule of thumb: instant answer per request → real-time; large volume where a delay is fine → batch.
+
+What is a token? What is a context window?
+Token — a chunk of text the model reads/writes in, roughly ¾ of a word (~4 characters in English). "unbelievable" might split into a few tokens. Models think in tokens, not words.
+Context window — the max tokens the model can hold in view at once (your prompt + history + its reply). Go over it and the oldest stuff falls out of view. It's the model's working-memory limit.
+
+Key Takeaway:
+-AI is a handful of task types, not magic. Everything sorts into a few workloads — ML underneath, then computer vision, language, documents, and generative AI on top. Knowing which bucket a problem is in tells you which tool to reach for.
+-Responsible AI is a checklist, not a vibe. Six concrete things to ask of any system: is it fair, safe/reliable, private, inclusive, transparent, and accountable.
+-Three ML jobs, one distinction. Predict a number (regression), predict a label (classification), or find groups with no labels (clustering). The first two need labeled data; the last doesn't.
+-Models learn by being wrong on purpose. Gradient descent = guess, measure the error, nudge toward less-wrong, repeat. That's the whole training loop in one sentence.
+-Deployment is a latency question. Need it now → real-time endpoint. Got a pile and can wait → batch. The choice is about timing and cost, not capability.
+-LLMs think in tokens, inside a memory budget. Tokens are text chunks; the context window is how much it can hold at once. Run past it and the early stuff drops.
+-Fluent ≠ correct. Hallucination is the core risk — ground the model in real sources and keep a human check.
