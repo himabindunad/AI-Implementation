@@ -1,0 +1,95 @@
+Generative AI in C# with Ollama
+It is just an HTTP call to a local server.
+My C# app  ──HTTP──►  Ollama server (localhost:11434)  ──►  phi3:mini
+                    (runs on my machine)
+
+ollama pull phi3:mini → I downloaded the model weights to my machine
+Ollama exposes a local REST API on port 11434
+My C# code talks to it like any other HTTP service
+
+Why local models matter: free · private (data never leaves my machine) · the same IChatClient interface works for Ollama, Azure OpenAI, or GPT-4o — I learn it once and swap providers with one line.
+
+📦 The two packages need-
+
+PackageRoleHow I think of itMicrosoft.Extensions.AIAbstractions (IChatClient, IEmbeddingGenerator)The interface — provider-agnosticOllamaSharpOllama implementation of those abstractionsThe driver — talks to localhost:11434
+
+bashdotnet new console -n Day8Ollama
+cd Day8Ollama
+dotnet add package Microsoft.Extensions.AI
+dotnet add package OllamaSharp
+
+- I got to understand that the package Microsoft.Extensions.AI.Ollama is deprecated, and the older tutorials still reference it — I use OllamaSharp instead.
+
+1️⃣ My first call (one-shot)
+
+csharpusing Microsoft.Extensions.AI;
+using OllamaSharp;
+
+// OllamaApiClient implements IChatClient from Microsoft.Extensions.AI
+IChatClient chat = new OllamaApiClient(
+    new Uri("http://localhost:11434"),
+    "phi3:mini");
+
+var response = await chat.GetResponseAsync(
+    "Explain a NullReferenceException in one sentence.");
+
+Console.WriteLine(response.Text);
+
+I make sure Ollama is running (ollama serve or the app), then dotnet run.
+A working generative-AI app in ~8 lines.
+
+
+2️⃣ Streaming (what I actually want)
+
+The one-shot call waits for the entire response. For anything user-facing, I stream tokens as they generate — this surfaces the autoregressive loop from Day 6 (one token at a time).
+
+csharpawait foreach (var update in chat.GetStreamingResponseAsync(
+    "Explain what a memory leak is to a C# developer."))
+{
+    Console.Write(update.Text);   // prints each chunk as it arrives
+}
+
+
+3️⃣ Day 6 concepts → real parameters
+
+System prompts and temperature were theory in Day 6. Here I turn them into code.
+
+csharpusing Microsoft.Extensions.AI;
+using OllamaSharp;
+
+IChatClient chat = new OllamaApiClient(new Uri("http://localhost:11434"), "phi3:mini");
+
+var messages = new List<ChatMessage>
+{
+    // System prompt — sets role + constraints (Day 6, technique #1)
+    new(ChatRole.System,
+        "You are a log analysis assistant for .NET developers. " +
+        "Explain errors in plain English. Be concise."),
+
+    new(ChatRole.User,
+        "Log: NullReferenceException in PaymentService line 42")
+};
+
+var options = new ChatOptions
+{
+    Temperature = 0.1f   // low = focused/deterministic — right for log analysis
+};
+
+await foreach (var update in chat.GetStreamingResponseAsync(messages, options))
+    Console.Write(update.Text);
+
+Multi-turn note to self: each call is stateless. To make it conversational, I append the model's reply back into the messages list before the next user message — I carry the history (Day 6 context-window idea).
+
+
+✅ My key takeaways:
+Gen AI in C# = an HTTP call. Ollama runs a REST API on localhost:11434; my app is just a client.
+Two packages, two jobs. Microsoft.Extensions.AI = the interface; OllamaSharp = the Ollama driver.
+IChatClient is provider-agnostic. The same interface targets Ollama today and Azure OpenAI / GPT-4o tomorrow — one-line swap.
+I stream for anything real. GetStreamingResponseAsync shows the autoregressive token loop and feels responsive.
+Day 6 theory is now parameters. System prompt = role/constraints · temperature = focused (0.1) vs creative (0.9).
+The model is stateless. Conversation history is my responsibility — I keep it in a List<ChatMessage>.
+I avoid the deprecated package. Microsoft.Extensions.AI.Ollama is dead; I use OllamaSharp.
+
+Day 8 one-liner
+Generative AI in C# is just an HTTP call to a local server —
+IChatClient is the function, the system prompt is the config, and temperature is the dial.
