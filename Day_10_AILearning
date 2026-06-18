@@ -1,0 +1,114 @@
+Searching by Meaning - Semantic Search
+
+Day 9: Learned how close two sentences are.
+Today, is search through lots of sentences to find the closest ones to my question.
+This is the "search" part that RAG needs.
+
+The simple idea:
+Normal search matches *words*.
+If I search "log in" it only finds text that literally contains "log in".
+Whereas, Semantic search matches *meaning*.
+So "can't log in" can find "authentication failed" — even though they don't share a single word.
+Think of it like this:
+Old search = matching spelling.
+Semantic search = matching what you actually meant.
+
+How it works (in plain steps)
+1. Take all my documents and turn each one into a vector (a list of numbers = its meaning). I do this *once*.
+2. When someone asks a question, turn the *question* into a vector too.
+3. Compare the question's vector to every document's vector.
+4. Show the few documents with the *highest* scores.
+
+The C# code
+
+csharp
+using Microsoft.Extensions.AI;
+using OllamaSharp;
+
+// The thing that turns text into number-lists (meaning)
+IEmbeddingGenerator<string, Embedding<float>> embedder =
+    new OllamaApiClient(new Uri("http://localhost:11434"), "nomic-embed-text");
+
+// A saved document = its text + its meaning (vector)
+record Doc(string Text, float[] Vector);
+
+// STEP 1: my list of documents
+string[] corpus =
+{
+    "User authentication failed - invalid token",
+    "Database connection timeout after 30s",
+    "Payment gateway returned 502",
+    "Null reference in OrderService.Calculate",
+    "Disk space exceeded on node-3",
+};
+
+// Turn each document into a vector ONCE and remember it
+var index = new List<Doc>();
+foreach (var text in corpus)
+    index.Add(new Doc(text, (await embedder.GenerateVectorAsync(text)).ToArray()));
+
+// STEP 2-4: search by meaning
+async Task<List<(string Text, float Score)>> Search(string query, int topK)
+{
+    // turn the question into a vector
+    float[] q = (await embedder.GenerateVectorAsync(query)).ToArray();
+
+    return index
+        .Select(d => (d.Text, Score: Cosine(q, d.Vector)))  // score each document
+        .OrderByDescending(x => x.Score)                     // best matches first
+        .Take(topK)                                          // keep the top few
+        .ToList();
+}
+
+// Show the 3 closest matches to "can't log in"
+foreach (var hit in await Search("can't log in", 3))
+    Console.WriteLine($"{hit.Score:F3}  {hit.Text}");
+
+// Closeness score (from Day 9). Closer to 1 = more similar.
+static float Cosine(float[] x, float[] y)
+{
+    float dot = 0, mx = 0, my = 0;
+    for (int i = 0; i < x.Length; i++) { dot += x[i]*y[i]; mx += x[i]*x[i]; my += y[i]*y[i]; }
+    return dot / (MathF.Sqrt(mx) * MathF.Sqrt(my));
+}
+
+*What happens when I run it:*
+I asked for "can't log in" and the top result was *"User authentication failed - invalid token"* —
+even though they share *no words at all*. Old keyword search would have found nothing.
+
+My search checks the question against *every single document, one by one.*
+If a few thousand documents? No problem.
+If a few *million*? Now it's slow and expensive, because it checks all of them every time.
+That's exactly why *vector databases* exist. They use clever shortcuts to find the closest matches
+super fast without checking every single one.
+
+Simple way to remember: a vector database is just a *faster, smarter version of my List<Doc>.*
+(And spotting "this gets slow at scale" is easy for me — that's my performance background)
+
+Tools I'd use later (instead of writing it by hand)
+| Tool | Use it when |
+|---|---|
+| *InMemoryVectorStore* | Just practicing / small data |
+| *Qdrant* | Local testing (runs in Docker) |
+| *Azure AI Search* | Real production app |
+| *pgvector* | I already use PostgreSQL |
+| *SQL Server 2025* | I already use SQL Server |
+They all do the same job — store vectors and find the closest ones — just faster and saved to disk.
+
+Why this matters for a project:
+Imagine saving *every past error and how it was fixed.*
+When a new error happens, I search by meaning and instantly see:
+"We've seen something like this before — here's what fixed it."
+Even if the new error is worded completely differently. That's a real, useful tool built on today's lesson.
+
+Key takeaways:
+1. *Semantic search finds by meaning, not exact words.*
+2. *The steps are simple:* turn everything into vectors → turn the question into a vector → pick the closest ones.
+3. *It really works:* "can't log in" found "authentication failed" with no shared words.
+4. *Checking every document gets slow* when there are millions of them.
+5. *Vector databases fix the speed problem* — think of one as a fast, saved version of my list.
+6. *I can swap tools later* without rewriting my app
+7. *This is the "search" step of RAG*
+
+one liner:
+Semantic search = turn everything into meaning-numbers, then find the ones closest to my question.
