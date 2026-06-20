@@ -1,0 +1,63 @@
+RAG: Giving LLMs a Brain and a Memory
+The Big Picture
+We already have all the puzzle pieces.
+
+Day 8: talked to an LLM.
+
+Day 9: compared two sentences.
+
+Day 10: we searched thousands of documents by meaning (Semantic Search).
+
+Day 11: Today is RAG (Retrieval-Augmented Generation). RAG just means: You take the search results from yesterday, paste them into the prompt, and ask the LLM to write an answer based only on that data.
+
+Why do we do this? LLMs don't know your private data, and they hallucinate (make things up). RAG gives them an "open-book exam" so they only speak the truth based on your documents.
+
+The 3-Step Recipe
+Retrieve: The user asks a question. You use yesterday's semantic search to find the top 2 or 3 relevant documents from your database.
+
+Augment: You paste those documents into a hidden prompt (the Context) along with the user's question.
+
+Generate: You send that giant prompt to the LLM. It reads the context and generates a perfect, factual answer.
+
+Code Blueprint
+Here is how easily it all comes together in C#:
+
+C#
+using Microsoft.Extensions.AI;
+
+// 1. RETRIEVE: Get relevant docs using yesterday's search
+string userQuestion = "How do I fix the login error?";
+List<string> matchedDocs = await SearchYesterdayIndex(userQuestion, topK: 2); 
+// Imagine this returns: ["User authentication failed - invalid token"]
+
+// 2. AUGMENT: Create the open-book exam prompt
+string context = string.Join("\n", matchedDocs);
+
+string fullPrompt = $@"
+You are a helpful support assistant. 
+Answer the user's question using ONLY the source text provided below. 
+If the answer cannot be found in the source text, say 'I do not know'.
+
+Source Text:
+{context}
+
+User Question: {userQuestion}
+Answer:";
+
+// 3. GENERATE: Ask the LLM to read the book and answer
+IChatClient aiClient = new OllamaApiClient(new Uri("http://localhost:11434"), "llama3");
+var response = await aiClient.CompleteAsync(fullPrompt);
+
+Console.WriteLine(response.Message.Text);
+Why this is a Game Changer
+If you ask an LLM about a specific, custom internal error code, it will guess or fail.
+With RAG, because you handed it the exact log file snippet before it spoke, it will say: "The login error is caused by an invalid token. You need to clear your cache or re-authenticate."
+
+Definition of Done for Today
+Understanding that RAG = Search + Prompt Injection + LLM Generation.
+
+Key takeaways:
+RAG Is Just Smart Prompt Engineering: There is no magic model training happening. RAG is simply running a fast semantic search query, pasting the text results into a template string, and letting the LLM read it before replying.
+Context Window Over Training: Fine-tuning teaches a model how to behave or sound, but context injection (RAG) is what teaches a model facts. Grounding the model with raw source text at runtime is the industry standard for accuracy.
+The "I Do Not Know" Guardrail: By explicitly instructing the model to say "I do not know" if the answer isn't in the provided text, you virtually eliminate hallucinations. This transforms the LLM from a speculative creative writer into a strict facts-only parsing engine.
+Separation of Concerns: Your data lives outside the AI. If your internal documentation changes, you don't need to rebuild or update your AI models; you just update your vector search index. The LLM handles the reasoning, while your index handles the knowledge base.
