@@ -1,0 +1,47 @@
+Conversational Memory: Managing Chat State
+
+Yesterday, learned LLM a private knowledge base by dropping raw search data straight into the prompt via RAG.
+Today, learning on building a stateful conversation thread so the LLM remembers previous messages for context-aware follow-up questions.
+LLM APIs (like Ollama or OpenAI) are fundamentally **stateless**. Every single HTTP request sent to the chat endpoint knows absolutely nothing about the requests that came before it. It has amnesia.
+
+The 3-Step Flow
+1. **Maintain a Timeline:** Create an ongoing list of `ChatMessage` objects containing distinct roles (`ChatRole.System`, `ChatRole.User`, `ChatRole.Assistant`).
+2. **Append on Every Turn:** Capture the new user input, append it to the tracking list, and send the *full list* to the client.
+3. **Commit the Response:** Intercept the generation response, append it back into the tracking list as an Assistant message, and keep the loop running.
+
+The Code Blueprint
+Using `.NET`'s standard `Microsoft.Extensions.AI` abstractions, handling this manually or passing a stateful array is highly expressive and clean:
+
+```csharp
+using Microsoft.Extensions.AI;
+using OllamaSharp;
+
+IChatClient client = new OllamaApiClient(new Uri("http://localhost:11434"), "llama3");
+
+// 1. MAINTAIN A TIMELINE: Initialize our tracking session history
+var conversationHistory = new List<ChatMessage>
+{
+    new ChatMessage(ChatRole.System, "You are a brief, helpful IT support engineer.")
+};
+
+while (true)
+{
+    Console.Write("\nUser: ");
+    string userInput = Console.ReadLine();
+    if (string.IsNullOrWhiteSpace(userInput)) break;
+
+    // 2. APPEND ON EVERY TURN: Add user query to the shared timeline
+    conversationHistory.Add(new ChatMessage(ChatRole.User, userInput));
+
+    // Send the entire chronological timeline to the LLM
+    var response = await client.CompleteAsync(conversationHistory);
+
+    // 3. COMMIT THE RESPONSE: Store the assistant's response back into memory
+    Console.WriteLine($"\nAI: {response.Message.Text}");
+    conversationHistory.Add(new ChatMessage(ChatRole.Assistant, response.Message.Text));
+}
+
+Key Takeaways:
+The LLM has Amnesia: Memory is entirely a client-side illusion. The model doesn't "remember" you; you are just re-submitting the whole transcript with every single message.
+Role Types Matter: The structure requires clear separation. System sets the behavior rules, User represents the human prompts, and Assistant represents the model's past responses. Mixed roles allow the LLM to cleanly follow who said what.
+State Management in Web Apps: In a real console app, a local List<ChatMessage> works fine. In a web API or microservice, this state must be serialized and persisted out-of-process (e.g., in a Redis cache or Database) linked to a unique SessionId.
