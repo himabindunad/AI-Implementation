@@ -1,0 +1,57 @@
+Structured Outputs: Forcing LLMs to Return Strict JSON
+
+Yesterday, learned about conversational memory to manage stateless chat threads.
+Today, moving past unpredictable, free-form text responses. Forcing the LLM to return strict, strongly-typed JSON data that maps directly to C# classes so my application code can reliably parse it.
+
+By default, LLMs return natural language prose. If I ask a model to *"Extract errors from this log file as JSON,"* it might include conversational text like *"Here is your JSON:"*, or it might accidentally miss a closing bracket. RegEx parsing that output in production is a brittle nightmare.
+
+To build reliable software on top of AI, We need predictable, machine-readable data structures. Modern LLMs support **Structured Outputs** (or JSON Schema mode), where the model's token selection engine is mathematically constrained to *only* output characters that conform to a strict JSON schema that I define. If it violates the schema, it isn't allowed to print the token.
+
+The 3-Step Flow
+1. **Define the Schema:** Create a standard C# `class` or `record` that represents the exact shape of the data I want.
+2. **Configure the AI Client:** Use `ChatOptions` to tell the `IChatClient` that the response format must conform to a JSON schema built from my C# type.
+3. **Parse and Deserialize:** Pass the options to the call, receive the raw text guaranteed to be valid JSON, and deserialize it immediately with `System.Text.Json`.
+
+The Code Blueprint
+Using `Microsoft.Extensions.AI` alongside `System.Text.Json`, forcing typed structured data out of a local model is incredibly straightforward:
+
+```csharp
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.Extensions.AI;
+using OllamaSharp;
+
+IChatClient client = new OllamaApiClient(new Uri("http://localhost:11434"), "llama3");
+
+// 1. DEFINE THE SCHEMA: The exact structural contract we need
+public record IncidentAnalysis(
+    [property: JsonPropertyName("severity")] string Severity,
+    [property: JsonPropertyName("root_cause")] string RootCause,
+    [property: JsonPropertyName("suggested_fixes")] string[] SuggestedFixes
+);
+
+string logLine = "Database connection timeout after 30s on node-3. Thread pool exhausted.";
+
+// 2. CONFIGURE THE AI CLIENT: Enforce the schema via ChatOptions
+var chatOptions = new ChatOptions
+{
+    ResponseFormat = ChatResponseFormat.ForJsonSchema<IncidentAnalysis>()
+};
+
+var response = await client.CompleteAsync(
+    $"Analyze this log and extract the details: {logLine}", 
+    chatOptions
+);
+
+// 3. PARSE AND DESERIALIZE: Safe to do without worrying about conversational fluff
+string rawJson = response.Message.Text;
+IncidentAnalysis analysis = JsonSerializer.Deserialize<IncidentAnalysis>(rawJson);
+
+Console.WriteLine($"Severity: {analysis.Severity.ToUpper()}");
+Console.WriteLine($"Root Cause: {analysis.RootCause}");
+Console.WriteLine($"Fixes Count: {analysis.SuggestedFixes.Length}");
+
+Key Takeaways:
+Zero Conversational Fluff: When JSON Schema mode is active, the LLM stops saying "Sure, here is your JSON object:". It outputs the opening curly brace { as its very first token because anything else violates the constraint engine.
+Schema Enforcement is Structural, Not Factual: The constraint engine ensures the output contains valid JSON keys, arrays, and types matching your class. It does not guarantee the AI won't hallucinate a factual detail inside those keys. It guarantees the container, not the content.
+System.Text.Json Integration: Native attributes like [JsonPropertyName] and [JsonDescription] are automatically converted by Microsoft.Extensions.AI into the raw JSON Schema block sent to the LLM backend under the hood.
