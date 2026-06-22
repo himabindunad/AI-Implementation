@@ -1,0 +1,70 @@
+Function Calling: Giving the LLM Hands to Call the Code
+
+Yesterday, its about forcing the LLM to return strict, predictable JSON structures using schemas.
+Today, I am taking the ultimate step in LLM orchestration, giving the LLM tools. By exposing the native C# methods as JSON schemas, the LLM can explicitly choose to call real code on my server to pull live data or take real-world actions.
+
+LLMs cannot look up live system states, query databases, or check the current time on their own—they are frozen in their training cutoff data. 
+**Function Calling** fixes this. Instead of trying to pass every piece of system data into the prompt upfront, I provide the LLM with a list of "Tools" (descriptions of my C# methods). When the user asks a question requiring external data, the LLM stops generating text and responds with a specific request: *"Please execute `GetIncidentDetails` with `id: 404` and give me the result."* My app runs the native C# code, feeds the return value back to the LLM, and the LLM synthesizes the final human-readable response.
+
+The 3-Step Flow:
+1. **Declare the C# Tool:** Define a clear, native C# method with detailed descriptions so the LLM understands exactly *when* and *how* to use it.
+2. **Register the Tool:** Wrap the method inside `AIFunctionFactory.Create` and attach it to the `ChatOptions.Tools` collection.
+3. **The Invocation Loop:** Send the message. If the LLM requests a tool call, execute the local C# function, append the execution results to the chat history array, and send it back to the LLM to finish its thought.
+
+The Code Blueprint:
+Using the standard `Microsoft.Extensions.AI` framework, wire up a live plugin tool seamlessly:
+
+```csharp
+using System.ComponentModel;
+using Microsoft.Extensions.AI;
+using OllamaSharp;
+
+IChatClient client = new OllamaApiClient(new Uri("http://localhost:11434"), "llama3");
+
+// 1. DECLARE THE C# TOOL: Document parameters clearly so the LLM parses correctly
+[Description("Gets the deployment status and active error logs for a specific server node.")]
+public string GetNodeStatus([Description("The identifier of the node, e.g., node-3")] string nodeId)
+{
+    // Real code execution happens here (DB lookups, API calls, etc.)
+    if (nodeId == "node-3") 
+        return "CRITICAL: Disk space exceeded (99% capacity). 43 timeout errors logged.";
+    return "Node operational. Healthy status.";
+}
+
+// 2. REGISTER THE TOOL: Turn the method into an AI-readable function
+var systemTools = new List<AIFunction>
+{
+    AIFunctionFactory.Create(GetNodeStatus)
+};
+
+var options = new ChatOptions { Tools = systemTools };
+
+// 3. THE INVOCATION LOOP: Send query and let the client handle tool resolution
+var history = new List<ChatMessage> { new ChatMessage(ChatRole.User, "Is node-3 failing right now?") };
+
+var response = await client.CompleteAsync(history, options);
+
+// Check if the LLM chose to call our code
+if (response.Message.Contents.OfType<AIFunctionCallContent>().Any())
+{
+    foreach (var call in response.Message.Contents.OfType<AIFunctionCallContent>())
+    {
+        Console.WriteLine($"[LLM triggered tool: {call.Name} with args: {call.Arguments["nodeId"]}]");
+        
+        // Execute local C# function code
+        object result = await call.InvokeAsync(systemTools);
+        
+        // Feed the factual results straight back into the conversation history
+        history.Add(response.Message); 
+        history.Add(new ChatMessage(ChatRole.Tool, result.ToString()) { AuthorName = call.Name });
+    }
+
+    // Send the completed ledger back to the LLM for final natural response generation
+    var finalResponse = await client.CompleteAsync(history, options);
+    Console.WriteLine($"\nAI response: {finalResponse.Message.Text}");
+}
+
+Key Takeaways:
+The LLM Does Not Run the Code: The LLM does not execute anything securely or unsecurely on your server. It merely sends a text request saying: "Please run function X with parameter Y." Your application maintains absolute control over whether it actually invokes that method or blocks it.
+Descriptions are the Code: The strings inside [Description] attributes are compile-time data that act as explicit prompt engineering instructions for the model's tool selection router. Bad descriptions lead to the LLM executing the wrong tools or passing malformed arguments.
+The Two-Turn Conversation: A single function call requires a minimum of two round-trips to the LLM. Turn 1 determines which tool to call. Turn 2 summarizes the raw result returned from your code into a conversational response.
