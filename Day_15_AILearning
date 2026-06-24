@@ -1,0 +1,82 @@
+Autonomous AI Agents: Building Multi-Step Logic Loops
+
+Yesterday, learned about exposing LLM native C# tools that it can request to execute.
+Today, we see every single foundational block together—prompts, memory, structured schema outputs, and tools—to build a fully Autonomous AI Agent. This is an engine that doesn't just answer questions, but evaluates a goal, creates a multi-step plan, executes tools iteratively, and corrects its own course until the task is completely finished.
+
+The Big Idea
+Traditional software runs on rigid, pre-programmed code paths (if/else loops). Function calling (Day 14) allowed the LLM to call code, but I still controlled the loop—running exactly one round-trip.
+An Autonomous Agent operates on the ReAct (Reasoning + Acting) pattern. I hand the LLM a complex, open-ended goal and a toolbox of functions. The LLM enters an autonomous execution loop:
+Thought: It analyzes the current situation and reasons about what to do next.
+Action: It selects and executes a specific tool (e.g., querying a database or reading a log).
+Observation: It inspects the raw output data returned by that tool.
+Repeat: It evaluates if the goal is met. If not, it loops back to step 1 with its new knowledge.
+
+The 3-Step Flow
+The Core Loop: Wrap the IChatClient request in a stateful while loop that continues running until the LLM explicitly signals it has found the final answer.
+Context Aggregation: Keep appending every single tool call request and every single raw tool output back into the same running List<ChatMessage> timeline so the agent remembers what it has already tried.
+The Exit Condition: Break the loop only when the model stops generating tool calls and returns a final natural language answer to the user.
+
+The Code:
+This is how easily a fully autonomous reasoning loop comes together by orchestrating everything we have built over the past week:
+
+C#
+using System.ComponentModel;
+using Microsoft.Extensions.AI;
+using OllamaSharp;
+
+IChatClient client = new OllamaApiClient(new Uri("http://localhost:11434"), "llama3");
+
+// 1. SETUP THE TOOLS: Give the agent its eyes and ears
+[Description("Searches the system log database for errors matching a keyword.")]
+string SearchLogs(string keyword) => "Found 1 match: 'Error 502: Payment gateway timeout on transaction_id: 9942'.";
+
+[Description("Checks the transaction database for the status of a specific transaction ID.")]
+string CheckTransaction(string txId) => $"Transaction {txId} status: PENDING_EXTERNAL_ACK. Error code: 502.";
+
+var tools = new List<AIFunction> { AIFunctionFactory.Create(SearchLogs), AIFunctionFactory.Create(CheckTransaction) };
+var options = new ChatOptions { Tools = tools };
+
+// Initialize the agent state with clear system instructions and a multi-step goal
+var agentMemory = new List<ChatMessage>
+{
+    new ChatMessage(ChatRole.System, "You are an autonomous operations agent. Run tools iteratively until you find the definitive root cause of an issue."),
+    new ChatMessage(ChatRole.User, "Investigate why payments are failing right now.")
+};
+
+bool taskComplete = false;
+int loopGuard = 0;
+
+// 2. THE CORE REACT LOOP
+while (!taskComplete && loopGuard++ < 5) // Stop runaway infinite execution loops
+{
+    var response = await client.CompleteAsync(agentMemory, options);
+    agentMemory.Add(response.Message); // Append the model's current reasoning state
+
+    var toolCalls = response.Message.Contents.OfType<AIFunctionCallContent>().ToList();
+    
+    if (toolCalls.Any())
+    {
+        foreach (var call in toolCalls)
+        {
+            Console.WriteLine($"[Agent Thought] -> Decided to call: {call.Name} with {JsonSerializer.Serialize(call.Arguments)}");
+            
+            // Execute the selected tool and observe the result
+            object observation = await call.InvokeAsync(tools);
+            Console.WriteLine($"[Agent Observation] -> Result: {observation}");
+
+            // Feed the observation back into the memory line for the next iteration step
+            agentMemory.Add(new ChatMessage(ChatRole.Tool, observation.ToString()) { AuthorName = call.Name });
+        }
+    }
+    else
+    {
+        // 3. THE EXIT CONDITION: No more tools needed; the agent has formulated its final answer
+        Console.WriteLine($"\n[Final Agent Resolution]:\n{response.Message.Text}");
+        taskComplete = true;
+    }
+}
+💡 
+Key Takeaways:
+The Agent Orchestrates Itself: didn't write any code saying "First search the logs, then check the transaction database." The LLM looked at the user's goal, recognized it lacked the information, looked at its available tools, and figured out the logical sequence of operations entirely on its own.
+State Continuity is Crucial: The reason this loops works is because every single step—what the model thought, what tool it wanted to run, and what data the tool returned—is stored inside the ongoing chat ledger. If you clear or drop any of those messages between loop iterations, the agent loses its train of thought and gets stuck.
+The Loop Guard is Non-Negotiable: Agents can easily hallucinate, get confused by error outputs, or spin in circles calling the same tool repeatedly. A strict maximum iteration cap (e.g., loopGuard < 5) is your critical architectural safety valve to protect your computing resource budget.
