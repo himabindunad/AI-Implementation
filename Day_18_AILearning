@@ -1,0 +1,65 @@
+Chunking Strategies: Breaking Data Without Losing Context
+
+Yesterday,learned how HNSW graphs scale vector search lookups to millions of items by changing $O(n)$ search into $O(\log n)$.
+Today, tackling the data preparation bottleneck. You can't just pass an entire 50-page PDF or a massive 10,000-line system log file to an embedding model all at once. Embedding models have strict token limits, and giant text blocks dilute semantic meaning. Today, I am mastering Chunking—the art of slicing large text into optimal, bitesize vector fragments without destroying context.
+
+The Big Idea:
+If I take a massive internal architecture document and embed the whole thing as one giant vector, the embedding model tries to compress the entire document's meaning into a single list of numbers. When a user searches for a specific detail buried on page 34, the semantic signal is completely washed out.
+To fix this, I must slice data into chunks before embedding them.
+But naive chunking breaks software logic. If I split a text file strictly every 500 characters, a crucial error code might be split right down the middle: Err_ in Chunk 1 and 404_Timeout in Chunk 2. Neither chunk will ever match a search for Err_404_Timeout. Choosing the right strategy determines whether my RAG pipeline actually works or returns broken garbage.
+
+The 4 Main Chunking Strategies:
+1. Fixed-Size Chunking (The Naive Way)
+You split text by a rigid count of characters or tokens (e.g., exactly 200 tokens per chunk) with a slight "overlap" (e.g., 20 tokens) so sentences don't cut off completely dry.
+Best for: Quick prototyping.
+The Flaw: Completely ignores punctuation, structure, and human meaning
+2. Recursive Character Chunking (The Standard Choice)
+Instead of cutting mid-word, it looks at a prioritized list of separators—like paragraphs (\n\n), newlines (\n), spaces ( ), and finally individual characters. It tries to keep paragraphs intact, but if a paragraph is too big, it splits it at the nearest sentence boundary.
+Best for: Standard text documents, markdown documentation, and essays.
+3. Semantic Chunking (The AI-Driven Way)
+Instead of looking at character counts, this strategy scans the text, calculates the embedding vector of every consecutive sentence, and measures the mathematical distance between sentence 1 and sentence 2. If the semantic distance jumps sharply, it means the topic changed, and it draws a chunk boundary there.
+Best for: Highly conversational transcripts or long legal documents where sections flow unpredictably.
+4. Specialized Structural Chunking (The Engineer's Edge)
+Slicing data based on code or structural boundaries. For data logs, a chunk is exactly one full stack trace log block. For source code, a chunk is exactly one C# method.
+Best for: Code repositories, system logs, and data-centric applications.
+
+The Code:
+Here is how to implement a clean, structural regex-driven chunking parser in C# to split a massive system log file into perfect, distinct incident chunks based on stack trace entry boundaries:
+
+using System.Text.RegularExpressions;
+
+public record LogChunk(string LogId, string Content, DateTime Timestamp);
+
+public class LogChunker
+{
+    public static List<LogChunk> ChunkLogFile(string rawLogData)
+    {
+        var chunks = new List<LogChunk>();
+        
+        // Split logs by matching standard ISO timestamps at the beginning of log entries
+        // Example delimiter pattern: "2026-06-26 19:45:00 [ERROR]"
+        string logPattern = @"(?=\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})";
+        string[] rawEntries = Regex.Split(rawLogData, logPattern);
+
+        foreach (var entry in rawEntries)
+        {
+            if (string.IsNullOrWhiteSpace(entry)) continue;
+
+            // Generate a fast deterministic ID or hash for the chunk
+            string chunkId = $"chunk-{Guid.NewGuid().ToString()[..8]}";
+            
+            chunks.Add(new LogChunk(
+                LogId: chunkId,
+                Content: entry.Trim(),
+                Timestamp: DateTime.UtcNow
+            ));
+        }
+
+        return chunks;
+    }
+}
+
+Key Takeaways:
+The Overlap Cushion: In fixed or recursive chunking, always include an "Overlap" factor (typically 10% to 20% of your chunk size). Keeping the tail end of Chunk 1 inside the starting boundary of Chunk 2 provides a semantic bridge, preventing contextual data from slipping through the cracks.
+Context Dilution: If your chunks are too small (e.g., 20 words), they lack context and match irrelevant searches. If your chunks are too large (e.g., 2000 words), the precise meaning of individual sentences gets buried in noise. The sweet spot for most standard textual RAG setups is between 200 and 500 tokens.
+Match Chunks to Data Types: Never use standard text chunkers on specialized structures. Code needs a code parser, CSV files need line-by-line row evaluations, and log files need delimiter regex boundaries.
