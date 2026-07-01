@@ -1,0 +1,98 @@
+Agentic RAG: Self-Correction and Routing Pipelines
+Yesterday, learned how to built GraphRAG to map complex, interconnected knowledge networks and solve global reasoning problems.
+Today, its taking the retrieval systems to the next level by combining them with autonomous execution loops. Standard RAG pipelines are completely passive—they search once, paste whatever data they find into the prompt, and hope for the best. If the search returns irrelevant data, the LLM hallucinates. Today, I am building Agentic RAG—an active, self-correcting retrieval pipeline that evaluates its own search results, dynamically adjusts its queries, and routes between multiple data sources to guarantee accuracy.
+
+The Big Idea:
+Standard RAG pipelines break silently in production. If a developer searches for a bug fix, and the vector index pulls back an outdated, irrelevant documentation page, a standard RAG pipeline will confidently present that stale information as the absolute truth. The system lacks the critical ability to look at its own context and say, "Wait, this document doesn't actually answer the user's question."
+
+Agentic RAG introduces an active intelligence layer over the retrieval step using two key patterns:
+-Query Routing: The agent analyzes the user's incoming question and dynamically selects the best tool or database for the job (e.g., routing a bug tracking ID to a SQL database, but a broad architectural question to GraphRAG).
+-Self-Correction (Corrective RAG / Self-RAG): The agent performs a search, reads the retrieved chunks, and uses a grading step to evaluate their relevance. If the chunks pass, it generates the answer. If they fail, it rejects the context, reformulates the search keywords, and triggers a secondary fallback search (like an external web search API) to fetch better data.
+
+The 3-Step Agentic RAG Flow
+-Route: An incoming query is classified by the LLM to target a specific data store tool.
+-Grade: The system retrieves documents and runs a fast classification step to grade each chunk as Relevant or Irrelevant.
+-Correct or Generate: If the data is sufficient, the LLM generates the final answer. If it's insufficient, the agent drops the bad chunks, runs a query re-writer, and pulls fresh data before attempting generation.
+
+The Code:
+We can implement an agentic self-correction loop by structuring our retrieval steps as conditional control paths inside our C# service:
+
+using Microsoft.Extensions.AI;
+using System.Text.Json;
+
+public enum SearchRoute { InternalLogs, CoreDocumentation }
+public record GradingResult(bool IsRelevant, string Reason);
+
+public class AgenticRAGEngine
+{
+    private readonly IChatClient _client;
+    private readonly LogSearchEngine _vectorSearch;
+    private readonly AdvancedRetrievalPipeline _docSearch;
+
+    public AgenticRAGEngine(IChatClient client, LogSearchEngine vectorSearch, AdvancedRetrievalPipeline docSearch)
+    {
+        _client = client;
+        _vectorSearch = vectorSearch;
+        _docSearch = docSearch;
+    }
+
+    public async Task<string> ProcessQueryAsync(string userQuery)
+    {
+        // 1. DYNAMIC ROUTING STEP
+        SearchRoute route = userQuery.Contains("ERR_", StringComparison.OrdinalIgnoreCase) 
+            ? SearchRoute.InternalLogs 
+            : SearchRoute.CoreDocumentation;
+
+        string context = "";
+        if (route == SearchRoute.InternalLogs)
+        {
+            var logs = await _vectorSearch.ExecuteHybridSearch(userQuery);
+            context = string.Join("\n", logs.Select(l => l.Content));
+        }
+        else
+        {
+            var docs = await _docSearch.GetOptimizedContext(userQuery);
+            context = string.Join("\n", docs.Select(d => d.Content));
+        }
+
+        // 2. SELF-CORRECTION GRADING STEP
+        GradingResult grade = await GradeContextQualityAsync(userQuery, context);
+
+        if (!grade.IsRelevant)
+        {
+            Console.WriteLine($"[Agentic RAG] -> Context failed validation: {grade.Reason}. Executing fallback rewrite...");
+            
+            // Rewrite the query to expand semantic matching coverage
+            string rewrittenQuery = await RewriteQueryAsync(userQuery);
+            
+            // Fallback: Execute a wider search with the optimized query
+            var fallbackDocs = await _docSearch.GetOptimizedContext(rewrittenQuery);
+            context = string.Join("\n", fallbackDocs.Select(d => d.Content));
+        }
+
+        // 3. FINAL GROUNDED GENERATION
+        var finalResponse = await _client.CompleteAsync($"Context:\n{context}\n\nQuestion: {userQuery}\nAnswer:");
+        return finalResponse.Message.Text;
+    }
+
+    private async Task<GradingResult> GradeContextQualityAsync(string query, string context)
+    {
+        // Use a fast structured JSON output format to grade document utility
+        var options = new ChatOptions { ResponseFormat = ChatResponseFormat.ForJsonSchema<GradingResult>() };
+        var response = await _client.CompleteAsync($"Does this context contain facts to answer this query: '{query}'?\nContext: {context}", options);
+        return JsonSerializer.Deserialize<GradingResult>(response.Message.Text);
+    }
+
+    private async Task<string> RewriteQueryAsync(string query)
+    {
+        var response = await _client.CompleteAsync($"Optimize this search query for an index lookup. Return only the optimized keywords: {query}");
+        return response.Message.Text.Trim();
+    }
+}
+
+Key Takeaways:
+Active vs. Passive Pipelines: Passive RAG pipelines are rigid and break easily when faced with poor search results. Agentic RAG shifts the responsibility to a self-correcting logic loop, evaluating data quality before passing it to generation.
+
+Query Re-Writing: When a search returns bad data, it's often because the user's raw query lacked the precise technical terminology found in the database index. Having the LLM re-write and expand the query keywords dynamically clears this hurdle.
+
+Granular Tool Routing: By decoupling data stores into explicit functional tools, you prevent context pollution. You only search your high-cost knowledge layers when the agent explicitly determines that a query requires that level of detail.
