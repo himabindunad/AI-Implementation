@@ -1,0 +1,88 @@
+Advanced RAG Evaluation: Measuring Faithfulness & Context Recall
+Yesterday, learned how to built an automated synthetic pipeline to generate a robust test suite of evaluation queries and ground truths.
+Today, I am completing the loop by implementing the core math metrics to actually score that dataset. Because AI outputs are free-text, I can't just check if the answer matches a string. Today, I am mastering the foundational triads of Advanced RAG Evaluation: Faithfulness (Groundedness), Answer Relevance, and Context Recall—the programmatic metrics that tell me exactly where my system is failing.
+
+The Big Idea:
+If my evaluation suite run outputs an accuracy score of 60%, that number alone doesn't tell me how to fix the system. Did the system fail because the Vector Database fetched the wrong documentation chunk? Or did the database fetch the right chunk, but the LLM ignored it and hallucinated a response?
+To diagnose an AI system, we must split evaluation into two isolated dimensions:
+The Retrieval Quality: Grading the Vector DB / Search engine.
+The Generation Quality: Grading the LLM's synthesis capability.
+We measure these dimensions using three algorithmic metrics, orchestrating an LLM-as-a-Judge to calculate distinct ratios between 0.0 and 1.0.
+
+The RAG Evaluation Triad
+1. Faithfulness (Groundedness)
+What it measures: Is the LLM hallucinating information outside of the retrieved context?
+The Metric: The system forces the Judge LLM to break the generated response down into distinct, individual claims. It then systematically verifies each claim against the retrieved text chunks.
+Faithfulness Score = (Number of Claims Verified by Context)\(Total Number of Claims in Generated Response)
+
+2. Context Recall
+What it measures: Did my Vector Search / Hybrid Search engine actually find the correct data?
+The Metric: The Judge LLM analyzes the Ground Truth (the target correct answer from Day 24) and checks if every factual point in that ground truth was successfully present inside the retrieved chunks.
+Context Recall Score = (Ground Truth Claims Present in Retrieved Context)\(Total Claims in Ground Truth)
+
+3. Answer Relevance
+What it measures: Does the output actually answer the user's explicit question, or is it introducing irrelevant fluff?
+The Metric: The system asks the LLM to generate 3 hypothetical questions that the output text would answer, then runs an embedding cosine similarity check (Day 9) between those hypothetical queries and the user's actual original query.
+
+The Code:
+Here is how to implement a programmatic Faithfulness Evaluator engine in C#, utilizing structured schema patterns to extract and grade output atomic assertions against retrieval buffers:
+
+using Microsoft.Extensions.AI;
+using System.Text.Json;
+
+public record ClaimVerification(string ClaimText, bool IsGroundedInContext, string AnalysisText);
+public record EvaluationReport(List<ClaimVerification> Claims, float FinalFaithfulnessScore);
+
+public class RAGEvaluator
+{
+    private readonly IChatClient _evalJudgeClient;
+
+    public RAGEvaluator(IChatClient evalJudgeClient)
+    {
+        _evalJudgeClient = evalJudgeClient;
+    }
+
+    public async Task<EvaluationReport> EvaluateFaithfulnessAsync(string retrievedContext, string generatedResponse)
+    {
+        var options = new ChatOptions 
+        { 
+            ResponseFormat = ChatResponseFormat.ForJsonSchema<EvaluationReportBatch>(),
+            Temperature = 0.0f // Ensure absolute deterministic rigor for judging tasks
+        };
+
+        string judgePrompt = $"""
+        You are a cold, analytical regulatory compliance audit model. Your task is to evaluate the FAITHFULNESS of an AI response based strictly on the provided context.
+        
+        Step 1: Break down the Generated Response into distinct, isolated atomic factual claims.
+        Step 2: For each claim, check if it is explicitly, completely supported by the facts within the Retrieved Context.
+
+        Retrieved Context:
+        {retrievedContext}
+
+        Generated Response:
+        {generatedResponse}
+        """;
+
+        var response = await _evalJudgeClient.CompleteAsync(judgePrompt, options);
+        var reportBatch = JsonSerializer.Deserialize<EvaluationReportBatch>(response.Message.Text);
+
+        if (reportBatch == null || !reportBatch.Claims.Any())
+        {
+            return new EvaluationReport(new(), 0.0f);
+        }
+
+        // Calculate the explicit mathematical ratio
+        int verifiedCount = reportBatch.Claims.Count(c => c.IsGroundedInContext);
+        float score = (float)verifiedCount / reportBatch.Claims.Count;
+
+        return new EvaluationReport(reportBatch.Claims, score);
+    }
+}
+
+public record EvaluationReportBatch(List<ClaimVerification> Claims);
+
+Key Takeaways:
+Debug with Precision: * If Context Recall is Low, your problem is in the data layer: your chunking sizes are bad, your HNSW parameters are loose, or your hybrid search is dropping candidates.
+-If Faithfulness is Low, your problem is in the generation layer: your system prompts are soft, your model temperature is too high, or the model is over-relying on its base training weights.
+Deterministic Configuration: When running evaluation judge models, always set Temperature = 0.0. You do not want the evaluation judge to be creative; you want it to act as a strict, binary checker.
+Continuous Visibility: These scores shouldn't just be viewed once. Log them over time to an observability matrix dashboard (like Dynatrace or open-telemetry traces) to instantly flag when a minor prompt adjustment degrades system compliance metrics.
