@@ -1,0 +1,139 @@
+Semantic Caching: Slashing Latency and API Costs
+Today, I am learning to tackle a massive production scaling bottleneck. In a high-volume application, users often ask variations of the exact same questions ("How do I reset my API key?" or "What does error code ERR_404 mean?"). Running an expensive, multi-second LLM inference cycle for identical or highly similar queries is a massive waste of compute and money. Today, I am building a Semantic Cache—an intelligent, vector-backed cache layer that intercepts user inputs and yields responses in milliseconds if a conceptually identical query has been answered before.
+
+The Big Idea:
+Traditional software applications use deterministic caching (like Memcached or Redis string matches). If a user queries cache.Get("user_123"), a hash lookup instantly returns the object.
+But traditional string matching breaks completely for natural language:
+Query A: "How do I reset my password?"
+Query B: "Password reset steps please"
+To a traditional cache, these strings share zero exact character matches, resulting in a cache miss and forcing two separate, costly LLM generations.
+A Semantic Cache solves this by caching data based on meaning rather than string exactness. When a user submits a query, we generate its text embedding vector (Day 9) and perform a fast geometric vector search against our cache database. If the closest historical query matches above a strict threshold (e.g., a Cosine Similarity score greater than 0.96), we pull the previously generated answer straight out of storage. Lookups instantly drop from 2,000+ milliseconds down to under 10 milliseconds, completely bypassing the LLM.
+
+[User Input] ──> [Generate Embedding] ──> [Vector Search in Cache]
+                                                 │
+                   ┌─────────────────────────────┴─────────────────────────────┐
+                   ▼ (Similarity >= 0.96)                                      ▼ (Similarity < 0.96)
+           [SEMANTIC CACHE HIT]                                        [SEMANTIC CACHE MISS]
+         Return Historical Answer                                    1. Execute Full AI/RAG Pipeline
+           (Latency: ~5ms)                                           2. Write Response + Vector to Cache
+                                                                     3. Return Answer (Latency: ~2000ms)
+
+
+┌───────────────────────────┐
+                  │    Incoming User Query    │
+                  └─────────────┬─────────────┘
+                                │
+                                ▼
+                  ┌───────────────────────────┐
+                  │ Generate Vector Embedding │
+                  └─────────────┬─────────────┘
+                                │
+                                ▼
+            ┌───────────────────────────────────────┐
+            │ Vector Search vs. Cache Graph Store   │
+            └───────────────────┬───────────────────┘
+                                │
+        ┌───────────────────────┴───────────────────────┐
+        ▼ (Cosine Similarity >= Threshold)              ▼ (Cosine Similarity < Threshold)
+ ┌──────────────┐                                ┌──────────────┐
+ │  CACHE HIT   │                                │  CACHE MISS  │
+ └──────┬───────┘                                └──────┬───────┘
+        │                                               │
+        ▼                                               ▼
+┌───────────────┐                               ┌───────────────┐
+│ Return Stored │                               │ Run Full RAG  │
+│ LLM Answer    │                               │ / LLM Loop    │
+└───────────────┘                               └───────┬───────┘
+                                                        │
+                                                        ▼
+                                                ┌───────────────┐
+                                                │ Populate Cache│
+                                                │ with Response │
+                                                └───────────────┘
+
+The Code:
+Here is how to implement a high-performance in-memory Semantic Cache wrapper in C# utilizing modern .NET abstractions. This pattern can easily be modified to connect with an enterprise Redis or Qdrant cluster:
+
+using Microsoft.Extensions.AI;
+using System.Numerics;
+
+public record CachedResponse(string QueryText, string AnswerText, ReadOnlyMemory<float> Embedding);
+
+public class SemanticCacheService
+{
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embedder;
+    private readonly List<CachedResponse> _cacheStore = new();
+    private readonly float _similarityThreshold;
+
+    public SemanticCacheService(IEmbeddingGenerator<string, Embedding<float>> embedder, float similarityThreshold = 0.96f)
+    {
+        _embedder = embedder;
+        _similarityThreshold = similarityThreshold;
+    }
+
+    // ATTEMPT TO GET SEMANTIC MATCH
+    public async Task<string?> TryGetCachedAnswerAsync(string incomingQuery)
+    {
+        // 1. Convert incoming text to its semantic vector coordinate
+        var incomingEmbedding = await _embedder.GenerateVectorAsync(incomingQuery);
+        ReadOnlyMemory<float> incomingSpan = incomingEmbedding.Vector;
+
+        CachedResponse? bestMatch = null;
+        float highestSimilarity = -1.0f;
+
+        // 2. Scan active cache vectors (Production structures leverage HNSW here for O(log N) scale)
+        lock (_cacheStore)
+        {
+            foreach (var cachedItem in _cacheStore)
+            {
+                float similarity = ComputeCosineSimilarity(incomingSpan.Span, cachedItem.Embedding.Span);
+                if (similarity > highestSimilarity)
+                {
+                    highestSimilarity = similarity;
+                    bestMatch = cachedItem;
+                }
+            }
+        }
+
+        // 3. Evaluate if the concept matches closely enough to short-circuit
+        if (highestSimilarity >= _similarityThreshold && bestMatch != null)
+        {
+            Console.WriteLine($"[Semantic Cache HIT] -> Score: {highestSimilarity:F4}. Bypassing LLM execution.");
+            return bestMatch.AnswerText;
+        }
+
+        Console.WriteLine($"[Semantic Cache MISS] -> Best match score was: {(highestSimilarity > 0 ? highestSimilarity.ToString("F4") : "None")}. Proceeding to inference.");
+        return null;
+    }
+
+    // SET CACHE ENTRY
+    public void StoreCacheEntry(string queryText, string answerText, ReadOnlyMemory<float> embedding)
+    {
+        lock (_cacheStore)
+        {
+            _cacheStore.Add(new CachedResponse(queryText, answerText, embedding));
+        }
+    }
+
+    private float ComputeCosineSimilarity(ReadOnlySpan<float> vectorA, ReadOnlySpan<float> vectorB)
+    {
+        float dotProduct = 0.0f;
+        float magnitudeA = 0.0f;
+        float magnitudeB = 0.0f;
+
+        for (int i = 0; i < vectorA.Length; i++)
+        {
+            dotProduct += vectorA[i] * vectorB[i];
+            magnitudeA += vectorA[i] * vectorA[i];
+            magnitudeB += vectorB[i] * vectorB[i];
+        }
+
+        if (magnitudeA == 0.0f || magnitudeB == 0.0f) return 0.0f;
+        return dotProduct / (MathF.Sqrt(magnitudeA) * MathF.Sqrt(magnitudeB));
+    }
+}
+
+Key Takeaways:
+The Soft Match Revolution: Caching shifts from binary equality check flags (A == B) to float proximity arrays ($Distance \leq \epsilon$). This allows software layers to scale beautifully under conversational traffic variations.
+The Threshold Knife-Edge: Setting up threshold is a critical business choice. If you set it too high (e.g., 0.99), you will almost never get cache hits. If you set it too low (e.g., 0.85), the system will return answers to completely different questions, presenting a subtle hallucination vector to the client.
+Massive Cost Reductions: By intercepting repetitive incoming traffic chunks at the edge, you protect your system from massive token fees, making your application significantly more cost-sustainable.
